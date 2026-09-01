@@ -55,6 +55,29 @@ button {
   overflow: hidden;
 }
 
+.update-banner {
+  position: fixed;
+  z-index: 20;
+  top: 1rem;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  width: min(calc(100% - 2rem), 32rem);
+  padding: 0.75rem 0.85rem 0.75rem 1rem;
+  transform: translateX(-50%);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  border-radius: 16px;
+  background: #10213a;
+  box-shadow: var(--shadow);
+}
+
+.update-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
 .backdrop {
   position: fixed;
   inset: auto;

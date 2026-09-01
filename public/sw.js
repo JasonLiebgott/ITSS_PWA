@@ -1,4 +1,4 @@
-const CACHE_NAME = 'printer-support-pwa-v1';
+const CACHE_NAME = 'printer-support-pwa-v2';
 const BASE_URL = self.registration.scope;
 const ASSETS = [
   BASE_URL,
@@ -11,7 +11,10 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
   );
-  self.skipWaiting();
+});
+
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {

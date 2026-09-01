@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { printerSteps } from './data/printerSteps';
 import {
   loadCamps,
@@ -88,6 +88,7 @@ const newCamp = ref('');
 const newLocation = ref('');
 const newVendor = ref('');
 const importMode = ref('append');
+const updateAvailable = ref(false);
 let xlsxModule;
 
 function emptyForm() {
@@ -351,6 +352,22 @@ function navigateTo(tab) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+function applyUpdate() {
+  window.dispatchEvent(new Event('pwa-apply-update'));
+}
+
+function announceUpdate() {
+  updateAvailable.value = true;
+}
+
+onMounted(() => {
+  window.addEventListener('pwa-update-available', announceUpdate);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('pwa-update-available', announceUpdate);
+});
+
 function onPhotoChange(event) {
   const file = event.target.files?.[0];
   if (!file) return;
@@ -510,6 +527,14 @@ watch(
   <div class="shell">
     <div class="backdrop backdrop-a"></div>
     <div class="backdrop backdrop-b"></div>
+
+    <div v-if="updateAvailable" class="update-banner" role="status">
+      <span>New version available.</span>
+      <div class="update-actions">
+        <button class="primary small" type="button" @click="applyUpdate">Update</button>
+        <button class="ghost small" type="button" @click="updateAvailable = false">Later</button>
+      </div>
+    </div>
 
     <main class="app">
       <header class="hero card" :class="{ 'home-hero': activeTab === 'home' }">
