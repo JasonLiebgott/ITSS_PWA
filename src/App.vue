@@ -268,6 +268,20 @@ function importTypeForSheet(sheetName) {
   return types[sheetName.toLowerCase()] || '';
 }
 
+function importIdentifierForSheet(sheetName, row) {
+  const key = sheetName.toLowerCase().replace(/\s+/g, '');
+  const identifiers = {
+    'smartsource': ['Vendor #'],
+    'satphones': ['Device ID'],
+    'starlinkminis': ['Device ID'],
+    'starlinkgen3': ['Device ID'],
+    'accesspoints': ['ID#'],
+    'team3cache': ['ID#'],
+    'team3cached': ['ID#'],
+  };
+  return getImportValue(row, identifiers[key] || ['Vendor #', 'Device ID', 'ID#', 'Name Assigned', 'Name']);
+}
+
 function canonicalVendor(value) {
   const vendor = String(value || '').trim();
   return vendors.value.find((item) => item.toLowerCase() === vendor.toLowerCase()) || vendor;
@@ -291,7 +305,7 @@ async function importInventory(event) {
 
       for (const values of rows) {
         const row = Object.fromEntries(headers.map((header, index) => [header, values[index]]));
-        const name = getImportValue(row, ['Vendor #', 'Device ID', 'ID#', 'Name Assigned', 'Name']);
+        const name = importIdentifierForSheet(sheetName, row);
         if (!String(name).trim()) continue;
 
         const type = getImportValue(row, ['Type']) || importTypeForSheet(sheetName);
