@@ -1,6 +1,21 @@
 const DEVICE_STORAGE_KEY = 'printer-support-devices';
 const CAMP_STORAGE_KEY = 'printer-support-camps';
 const LOCATION_STORAGE_KEY = 'printer-support-locations';
+const VENDOR_STORAGE_KEY = 'printer-support-vendors';
+
+export function loadVendors(defaultVendors) {
+  try {
+    const raw = localStorage.getItem(VENDOR_STORAGE_KEY);
+    const vendors = raw ? JSON.parse(raw) : [];
+    return Array.isArray(vendors) && vendors.length ? vendors : defaultVendors;
+  } catch {
+    return defaultVendors;
+  }
+}
+
+export function saveVendors(vendors) {
+  localStorage.setItem(VENDOR_STORAGE_KEY, JSON.stringify(vendors));
+}
 
 export function loadCamps() {
   try {

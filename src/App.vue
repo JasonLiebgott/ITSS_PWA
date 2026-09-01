@@ -1,14 +1,15 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
-import * as XLSX from 'xlsx';
 import { printerSteps } from './data/printerSteps';
 import {
   loadCamps,
   loadDevices,
   loadLocations,
+  loadVendors,
   saveCamps,
   saveDevices,
   saveLocations,
+  saveVendors,
 } from './utils/storage';
 
 const deviceTypes = [
@@ -66,14 +67,17 @@ const baseLocations = [
   'Supply',
 ];
 
+const defaultVendors = ['SmartSource', 'IAS', 'OAS', 'Hartford'];
+
 const activeTab = ref('home');
 const menuOpen = ref(false);
 const completedSteps = ref(new Set());
 const camps = ref(loadCamps());
 const locations = ref(loadLocations(baseLocations));
+const vendors = ref(loadVendors(defaultVendors));
 const devices = ref(loadDevices());
 const editingId = ref(null);
-const stickyFields = ref({ camp: '', type: '', location: '' });
+const stickyFields = ref({ camp: '', type: '', location: '', vendor: defaultVendors[0] });
 const showDeviceForm = ref(false);
 const selectedCamp = ref('');
 const selectedType = ref('');
@@ -82,10 +86,14 @@ const status = ref('');
 const geolocationBusy = ref(false);
 const newCamp = ref('');
 const newLocation = ref('');
+const newVendor = ref('');
+const importMode = ref('append');
+let xlsxModule;
 
 function emptyForm() {
   return {
     name: '',
+    vendor: stickyFields.value.vendor,
     camp: stickyFields.value.camp,
     type: stickyFields.value.type,
     ipAddress: '',
@@ -194,6 +202,141 @@ function startNewDevice() {
   editingId.value = null;
   form.value = emptyForm();
   showDeviceForm.value = true;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function addVendor() {
+  const vendor = newVendor.value.trim();
+  if (!vendor || vendors.value.includes(vendor)) return;
+  vendors.value.push(vendor);
+  newVendor.value = '';
+}
+
+function renameVendor(index, value) {
+  const vendor = value.trim();
+  if (!vendor || vendors.value.some((item, itemIndex) => itemIndex !== index && item === vendor)) return;
+  const previousVendor = vendors.value[index];
+  vendors.value[index] = vendor;
+  devices.value = devices.value.map((device) =>
+    device.vendor === previousVendor ? { ...device, vendor } : device
+  );
+  if (form.value.vendor === previousVendor) form.value.vendor = vendor;
+}
+
+function removeVendor(index) {
+  if (vendors.value.length === 1) return;
+  const vendor = vendors.value[index];
+  vendors.value.splice(index, 1);
+  devices.value = devices.value.map((device) =>
+    device.vendor === vendor ? { ...device, vendor: '' } : device
+  );
+  if (form.value.vendor === vendor) form.value.vendor = '';
+}
+
+function normalizeHeader(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function getImportValue(row, names) {
+  for (const name of names) {
+    const value = row[normalizeHeader(name)];
+    if (value !== undefined && value !== null && String(value).trim()) return value;
+  }
+  return '';
+}
+
+function formatImportDate(value, xlsx) {
+  if (!value) return '';
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+  if (typeof value === 'number') {
+    const date = xlsx.SSF.parse_date_code(value);
+    if (date) return `${date.y}-${String(date.m).padStart(2, '0')}-${String(date.d).padStart(2, '0')}`;
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10);
+}
+
+function importTypeForSheet(sheetName) {
+  const types = {
+    'sat phones': 'Sat Phone',
+    'starlink minis': 'Starlink Mini',
+    'starlink gen3': 'Starlink Gen3',
+  };
+  return types[sheetName.toLowerCase()] || '';
+}
+
+function canonicalVendor(value) {
+  const vendor = String(value || '').trim();
+  return vendors.value.find((item) => item.toLowerCase() === vendor.toLowerCase()) || vendor;
+}
+
+async function importInventory(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  try {
+    xlsxModule ||= await import('xlsx');
+    const workbook = xlsxModule.read(await file.arrayBuffer(), { cellDates: true });
+    const imported = [];
+
+    for (const sheetName of workbook.SheetNames) {
+      if (sheetName.trim().toLowerCase() === 'reference only') continue;
+
+      const sheet = workbook.Sheets[sheetName];
+      const rows = xlsxModule.utils.sheet_to_json(sheet, { header: 1, defval: '', blankrows: false });
+      const headers = rows.shift()?.map(normalizeHeader) || [];
+
+      for (const values of rows) {
+        const row = Object.fromEntries(headers.map((header, index) => [header, values[index]]));
+        const name = getImportValue(row, ['Vendor #', 'Device ID', 'ID#', 'Name Assigned', 'Name']);
+        if (!String(name).trim()) continue;
+
+        const type = getImportValue(row, ['Type']) || importTypeForSheet(sheetName);
+        const vendor = canonicalVendor(sheetName.trim().toLowerCase() === 'smart source'
+          ? 'SmartSource'
+          : getImportValue(row, ['Vendor']));
+        const camp = String(getImportValue(row, ['Camp']) || '').trim();
+        const location = String(getImportValue(row, ['Location in Camp', 'Location']) || '').trim();
+        const setupDate = formatImportDate(getImportValue(row, ['Inventory Date', 'Iventory Date']), xlsxModule);
+        const notes = String(getImportValue(row, ['Notes']) || '').trim();
+        const now = new Date().toISOString();
+
+        imported.push({
+          id: crypto.randomUUID(),
+          name: String(name).trim(),
+          vendor,
+          camp,
+          type: String(type).trim(),
+          ipAddress: '',
+          location,
+          latitude: '',
+          longitude: '',
+          setupDate,
+          notes,
+          photo: '',
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+    }
+
+    if (!imported.length) {
+      status.value = 'No compatible records found in that workbook.';
+      return;
+    }
+
+    devices.value = importMode.value === 'replace' ? imported : [...imported, ...devices.value];
+    camps.value = [...new Set([...camps.value, ...imported.map((device) => device.camp).filter(Boolean)])];
+    locations.value = [...new Set([...locations.value, ...imported.map((device) => device.location).filter(Boolean)])];
+    vendors.value = [...new Set([...vendors.value, ...imported.map((device) => device.vendor).filter(Boolean)])];
+    status.value = `${imported.length} record${imported.length === 1 ? '' : 's'} ${importMode.value === 'replace' ? 'imported' : 'appended'}.`;
+  } catch {
+    status.value = 'Could not read that Excel file.';
+  } finally {
+    event.target.value = '';
+  }
 }
 
 const pageTitle = computed(() => ({
@@ -205,6 +348,7 @@ const pageTitle = computed(() => ({
 function navigateTo(tab) {
   activeTab.value = tab;
   menuOpen.value = false;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function onPhotoChange(event) {
@@ -260,6 +404,7 @@ function saveDevice() {
     camp: form.value.camp,
     type: form.value.type,
     location: form.value.location,
+    vendor: form.value.vendor,
   };
 
   if (editingId.value) {
@@ -297,6 +442,7 @@ function editDevice(device) {
   };
   showDeviceForm.value = true;
   activeTab.value = 'devices';
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function deleteDevice(id) {
@@ -308,9 +454,11 @@ function deleteDevice(id) {
   status.value = 'Device deleted.';
 }
 
-function exportDevices() {
+async function exportDevices() {
+  xlsxModule ||= await import('xlsx');
   const rows = sortedDevices.value.map((device) => ({
     'Vendor #': device.name,
+    Vendor: device.vendor || '',
     Camp: device.camp || '',
     Type: device.type || '',
     'Printer IP': device.ipAddress || '',
@@ -318,10 +466,10 @@ function exportDevices() {
     'Setup Date': device.setupDate || '',
     Notes: device.notes || '',
   }));
-  const worksheet = XLSX.utils.json_to_sheet(rows);
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Devices');
-  XLSX.writeFile(workbook, 'device-inventory.xlsx');
+  const worksheet = xlsxModule.utils.json_to_sheet(rows);
+  const workbook = xlsxModule.utils.book_new();
+  xlsxModule.utils.book_append_sheet(workbook, worksheet, 'Devices');
+  xlsxModule.writeFile(workbook, 'device-inventory.xlsx');
 }
 
 watch(
@@ -344,6 +492,14 @@ watch(
   locations,
   (value) => {
     saveLocations(value);
+  },
+  { deep: true }
+);
+
+watch(
+  vendors,
+  (value) => {
+    saveVendors(value);
   },
   { deep: true }
 );
@@ -389,21 +545,67 @@ watch(
       </header>
 
       <section v-if="activeTab === 'home'" class="home-actions" aria-label="Main options">
-        <button class="home-option" type="button" @click="activeTab = 'devices'">
+        <button class="home-option" type="button" @click="navigateTo('devices')">
           <span class="home-option-label">Inventory</span>
           <span class="home-option-detail">View and edit equipment records</span>
         </button>
-        <button class="home-option" type="button" @click="activeTab = 'steps'">
+        <button class="home-option" type="button" @click="navigateTo('steps')">
           <span class="home-option-label">Printer</span>
           <span class="home-option-detail">Follow printer setup steps</span>
         </button>
-        <button class="home-option" type="button" @click="activeTab = 'admin'">
+        <button class="home-option" type="button" @click="navigateTo('admin')">
           <span class="home-option-label">Admin</span>
           <span class="home-option-detail">Manage camps and locations</span>
         </button>
       </section>
 
       <section v-else-if="activeTab === 'admin'" class="grid admin-grid">
+        <article class="card panel import-panel">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Data</p>
+              <h2>Import Excel inventory</h2>
+            </div>
+            <p class="meta">Supported fields are imported; unrelated columns are ignored.</p>
+          </div>
+
+          <div class="import-actions">
+            <label>
+              Import behavior
+              <select v-model="importMode">
+                <option value="append">Append to current records</option>
+                <option value="replace">Replace current records</option>
+              </select>
+            </label>
+            <label class="file-button">
+              Choose Excel file
+              <input type="file" accept=".xlsx,.xls" @change="importInventory" />
+            </label>
+          </div>
+          <p class="status">{{ status }}</p>
+        </article>
+
+        <article class="card panel">
+          <div class="section-header">
+            <div>
+              <h2>Vendors</h2>
+            </div>
+            <p class="meta">Edit the vendor list used by inventory.</p>
+          </div>
+          <div class="camp-manager">
+            <div class="camp-list">
+              <div v-for="(vendor, index) in vendors" :key="vendor" class="camp-item">
+                <input :value="vendor" type="text" aria-label="Vendor name" @change="renameVendor(index, $event.target.value)" />
+                <button class="danger small" type="button" :disabled="vendors.length === 1" @click="removeVendor(index)">Remove</button>
+              </div>
+            </div>
+            <div class="camp-add">
+              <input v-model="newVendor" type="text" placeholder="New vendor" @keyup.enter="addVendor" />
+              <button class="ghost small" type="button" @click="addVendor">Add vendor</button>
+            </div>
+          </div>
+        </article>
+
         <article class="card panel">
           <div class="section-header">
             <div>
@@ -488,6 +690,18 @@ watch(
               <input v-model="form.name" type="text" placeholder="Vendor number" />
             </label>
             <label>
+              Vendor
+              <select v-model="form.vendor">
+                <option disabled value="">Select vendor</option>
+                <option v-if="form.vendor && !vendors.includes(form.vendor)" :value="form.vendor">
+                  {{ form.vendor }}
+                </option>
+                <option v-for="vendor in vendors" :key="vendor" :value="vendor">
+                  {{ vendor }}
+                </option>
+              </select>
+            </label>
+            <label>
               Camp
               <select v-model="form.camp">
                 <option disabled value="">Select camp</option>
@@ -500,6 +714,9 @@ watch(
               Type
               <select v-model="form.type">
                 <option disabled value="">Select type</option>
+                <option v-if="form.type && !deviceTypes.includes(form.type)" :value="form.type">
+                  {{ form.type }}
+                </option>
                 <option v-for="type in deviceTypes" :key="type" :value="type">
                   {{ type }}
                 </option>
