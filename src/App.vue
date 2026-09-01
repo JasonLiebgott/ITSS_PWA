@@ -66,7 +66,8 @@ const baseLocations = [
   'Supply',
 ];
 
-const activeTab = ref('steps');
+const activeTab = ref('home');
+const menuOpen = ref(false);
 const completedSteps = ref(new Set());
 const camps = ref(loadCamps());
 const locations = ref(loadLocations(baseLocations));
@@ -195,6 +196,17 @@ function startNewDevice() {
   showDeviceForm.value = true;
 }
 
+const pageTitle = computed(() => ({
+  steps: 'Printer',
+  devices: 'Inventory',
+  admin: 'Admin',
+}[activeTab.value] || 'Field support'));
+
+function navigateTo(tab) {
+  activeTab.value = tab;
+  menuOpen.value = false;
+}
+
 function onPhotoChange(event) {
   const file = event.target.files?.[0];
   if (!file) return;
@@ -204,10 +216,6 @@ function onPhotoChange(event) {
     form.value.photo = reader.result;
   };
   reader.readAsDataURL(file);
-}
-
-function useToday() {
-  form.value.setupDate = new Date().toISOString().slice(0, 10);
 }
 
 async function useCurrentLocation() {
@@ -348,25 +356,54 @@ watch(
     <div class="backdrop backdrop-b"></div>
 
     <main class="app">
-      <header class="hero card">
+      <header class="hero card" :class="{ 'home-hero': activeTab === 'home' }">
         <div>
           <p class="eyebrow">Incident Technology Support Specialists</p>
+          <h1>{{ activeTab === 'home' ? 'Field support' : pageTitle }}</h1>
         </div>
 
-        <div class="hero-actions">
-          <button class="tab" :class="{ active: activeTab === 'steps' }" @click="activeTab = 'steps'">
-            Printer Steps
+        <div class="menu-wrap">
+          <button
+            class="menu-button"
+            type="button"
+            aria-label="Open navigation menu"
+            :aria-expanded="menuOpen"
+            @click="menuOpen = !menuOpen"
+          >
+            <span></span>
+            <span></span>
+            <span></span>
           </button>
-          <button class="tab" :class="{ active: activeTab === 'devices' }" @click="activeTab = 'devices'">
-            Devices
-          </button>
-          <button class="tab" :class="{ active: activeTab === 'admin' }" @click="activeTab = 'admin'">
-            Admin
-          </button>
+          <nav v-if="menuOpen" class="menu" aria-label="Primary navigation">
+            <button :class="{ active: activeTab === 'home' }" type="button" @click="navigateTo('home')">
+              Home
+            </button>
+            <button :class="{ active: activeTab === 'devices' }" type="button" @click="navigateTo('devices')">
+              Inventory
+            </button>
+            <button :class="{ active: activeTab === 'admin' }" type="button" @click="navigateTo('admin')">
+              Admin
+            </button>
+          </nav>
         </div>
       </header>
 
-      <section v-if="activeTab === 'admin'" class="grid admin-grid">
+      <section v-if="activeTab === 'home'" class="home-actions" aria-label="Main options">
+        <button class="home-option" type="button" @click="activeTab = 'devices'">
+          <span class="home-option-label">Inventory</span>
+          <span class="home-option-detail">View and edit equipment records</span>
+        </button>
+        <button class="home-option" type="button" @click="activeTab = 'steps'">
+          <span class="home-option-label">Printer</span>
+          <span class="home-option-detail">Follow printer setup steps</span>
+        </button>
+        <button class="home-option" type="button" @click="activeTab = 'admin'">
+          <span class="home-option-label">Admin</span>
+          <span class="home-option-detail">Manage camps and locations</span>
+        </button>
+      </section>
+
+      <section v-else-if="activeTab === 'admin'" class="grid admin-grid">
         <article class="card panel">
           <div class="section-header">
             <div>
@@ -410,7 +447,7 @@ watch(
         </article>
       </section>
 
-      <section v-if="activeTab === 'steps'" class="grid">
+      <section v-else-if="activeTab === 'steps'" class="grid">
         <article class="card panel">
           <div class="section-header">
             <div>
@@ -436,11 +473,12 @@ watch(
 
       </section>
 
-      <section v-else class="grid devices-grid">
+      <section v-else class="grid devices-grid" :class="{ 'editing-layout': showDeviceForm }">
         <article v-if="showDeviceForm" class="card panel form-panel">
           <div class="section-header">
             <div>
               <p class="eyebrow">{{ editingId ? 'Edit device' : 'Create device' }}</p>
+              <h2 v-if="editingId">Edit record</h2>
             </div>
           </div>
 
@@ -473,10 +511,7 @@ watch(
             </label>
             <label>
               Setup date
-              <div class="field-row">
-                <input v-model="form.setupDate" type="date" />
-                <button class="ghost" type="button" @click="useToday">Today</button>
-              </div>
+              <input v-model="form.setupDate" type="date" />
             </label>
             <label class="full">
               Location
@@ -537,32 +572,30 @@ watch(
           <p class="status">{{ status }}</p>
         </article>
 
-        <aside class="card panel list-panel">
-          <div class="section-header">
-            <div>
-              <p class="eyebrow">Inventory</p>
-              <h2>Saved devices</h2>
-            </div>
-            <div class="inline-actions">
-              <button class="text-link" type="button" @click="startNewDevice">New device</button>
-              <p class="meta">{{ filteredDevices.length }} of {{ sortedDevices.length }}</p>
+        <aside v-else class="card panel list-panel">
+          <div class="section-header inventory-header">
+            <div class="inventory-actions">
               <button class="ghost small" type="button" :disabled="!sortedDevices.length" @click="exportDevices">
                 Download Excel
+              </button>
+            </div>
+            <div class="inventory-actions">
+              <button class="ghost small add-button" type="button" @click="startNewDevice">
+                <span aria-hidden="true">+</span>
+                Add New
               </button>
             </div>
           </div>
 
           <div class="filter-row">
             <label>
-              Camp
-              <select v-model="selectedCamp">
+              <select v-model="selectedCamp" aria-label="Filter by camp">
                 <option value="">All camps</option>
                 <option v-for="camp in camps" :key="camp" :value="camp">{{ camp }}</option>
               </select>
             </label>
             <label>
-              Type
-              <select v-model="selectedType">
+              <select v-model="selectedType" aria-label="Filter by type">
                 <option value="">All types</option>
                 <option v-for="type in deviceTypes" :key="type" :value="type">{{ type }}</option>
               </select>
@@ -583,11 +616,9 @@ watch(
                   @keydown.enter="editDevice(device)"
                   @keydown.space.prevent="editDevice(device)"
                 >
-              <div class="device-top">
-                <div>
-                  <h3>{{ device.name }}</h3>
-                  <p>{{ device.type }} · {{ device.location || 'No location set' }}</p>
-                </div>
+              <div class="device-line">
+                <h3>{{ device.name }}</h3>
+                <p>{{ device.type || 'Uncategorized' }} / {{ device.location || 'No location set' }}</p>
                 <div class="device-actions">
                   <button class="danger small" @click.stop="deleteDevice(device.id)">Delete</button>
                 </div>
