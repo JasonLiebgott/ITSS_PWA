@@ -1,6 +1,6 @@
 {
-  "name": "Printer Support PWA",
-  "short_name": "Printer Support",
+  "name": "EmberCount",
+  "short_name": "EmberCount",
   "description": "Field support app for printer setup steps and device tracking.",
   "start_url": "./",
   "scope": "./",
