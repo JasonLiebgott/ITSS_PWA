@@ -81,6 +81,7 @@ const stickyFields = ref({ camp: '', type: '', location: '', vendor: defaultVend
 const showDeviceForm = ref(false);
 const selectedCamp = ref('');
 const selectedType = ref('');
+const selectedChangeScope = ref('all');
 const form = ref(emptyForm());
 const status = ref('');
 const geolocationBusy = ref(false);
@@ -115,7 +116,10 @@ const filteredDevices = computed(() =>
   sortedDevices.value.filter((device) => {
     const campMatches = !selectedCamp.value || device.camp === selectedCamp.value;
     const typeMatches = !selectedType.value || device.type === selectedType.value;
-    return campMatches && typeMatches;
+    const changeMatches = selectedChangeScope.value === 'all'
+      || (selectedChangeScope.value === 'since-import' && hasChangedSinceImport(device))
+      || (selectedChangeScope.value === 'today' && wasModifiedToday(device));
+    return campMatches && typeMatches && changeMatches;
   })
 );
 
@@ -143,8 +147,9 @@ function renameCamp(index, value) {
   if (!camp || camps.value.some((item, itemIndex) => itemIndex !== index && item === camp)) return;
   const previousCamp = camps.value[index];
   camps.value[index] = camp;
+  const updatedAt = new Date().toISOString();
   devices.value = devices.value.map((device) =>
-    device.camp === previousCamp ? { ...device, camp } : device
+    device.camp === previousCamp ? { ...device, camp, updatedAt } : device
   );
   if (form.value.camp === previousCamp) form.value.camp = camp;
 }
@@ -153,8 +158,9 @@ function removeCamp(index) {
   if (camps.value.length === 1) return;
   const camp = camps.value[index];
   camps.value.splice(index, 1);
+  const updatedAt = new Date().toISOString();
   devices.value = devices.value.map((device) =>
-    device.camp === camp ? { ...device, camp: '' } : device
+    device.camp === camp ? { ...device, camp: '', updatedAt } : device
   );
   if (form.value.camp === camp) form.value.camp = '';
 }
@@ -171,8 +177,9 @@ function renameLocation(index, value) {
   if (!location || locations.value.some((item, itemIndex) => itemIndex !== index && item === location)) return;
   const previousLocation = locations.value[index];
   locations.value[index] = location;
+  const updatedAt = new Date().toISOString();
   devices.value = devices.value.map((device) =>
-    device.location === previousLocation ? { ...device, location } : device
+    device.location === previousLocation ? { ...device, location, updatedAt } : device
   );
   if (form.value.location === previousLocation) form.value.location = location;
 }
@@ -181,8 +188,9 @@ function removeLocation(index) {
   if (locations.value.length === 1) return;
   const location = locations.value[index];
   locations.value.splice(index, 1);
+  const updatedAt = new Date().toISOString();
   devices.value = devices.value.map((device) =>
-    device.location === location ? { ...device, location: '' } : device
+    device.location === location ? { ...device, location: '', updatedAt } : device
   );
   if (form.value.location === location) form.value.location = '';
 }
@@ -218,8 +226,9 @@ function renameVendor(index, value) {
   if (!vendor || vendors.value.some((item, itemIndex) => itemIndex !== index && item === vendor)) return;
   const previousVendor = vendors.value[index];
   vendors.value[index] = vendor;
+  const updatedAt = new Date().toISOString();
   devices.value = devices.value.map((device) =>
-    device.vendor === previousVendor ? { ...device, vendor } : device
+    device.vendor === previousVendor ? { ...device, vendor, updatedAt } : device
   );
   if (form.value.vendor === previousVendor) form.value.vendor = vendor;
 }
@@ -228,8 +237,9 @@ function removeVendor(index) {
   if (vendors.value.length === 1) return;
   const vendor = vendors.value[index];
   vendors.value.splice(index, 1);
+  const updatedAt = new Date().toISOString();
   devices.value = devices.value.map((device) =>
-    device.vendor === vendor ? { ...device, vendor: '' } : device
+    device.vendor === vendor ? { ...device, vendor: '', updatedAt } : device
   );
   if (form.value.vendor === vendor) form.value.vendor = '';
 }
@@ -287,6 +297,15 @@ function canonicalVendor(value) {
   return vendors.value.find((item) => item.toLowerCase() === vendor.toLowerCase()) || vendor;
 }
 
+function hasChangedSinceImport(device) {
+  return !device.importedAt || device.updatedAt > device.importedAt;
+}
+
+function wasModifiedToday(device) {
+  if (!device.updatedAt) return false;
+  return new Date(device.updatedAt).toLocaleDateString() === new Date().toLocaleDateString();
+}
+
 async function importInventory(event) {
   const file = event.target.files?.[0];
   if (!file) return;
@@ -333,6 +352,7 @@ async function importInventory(event) {
           photo: '',
           createdAt: now,
           updatedAt: now,
+          importedAt: now,
         });
       }
     }
@@ -477,6 +497,9 @@ function editDevice(device) {
 }
 
 function deleteDevice(id) {
+  const device = devices.value.find((item) => item.id === id);
+  const label = device?.name ? `Vendor # ${device.name}` : 'this device';
+  if (!window.confirm(`Delete ${label}? This cannot be undone.`)) return;
   devices.value = devices.value.filter((device) => device.id !== id);
   if (editingId.value === id) {
     resetForm();
@@ -487,7 +510,7 @@ function deleteDevice(id) {
 
 async function exportDevices() {
   xlsxModule ||= await import('xlsx');
-  const rows = sortedDevices.value.map((device) => ({
+  const rows = filteredDevices.value.map((device) => ({
     'Vendor #': device.name,
     Vendor: device.vendor || '',
     Camp: device.camp || '',
@@ -500,7 +523,12 @@ async function exportDevices() {
   const worksheet = xlsxModule.utils.json_to_sheet(rows);
   const workbook = xlsxModule.utils.book_new();
   xlsxModule.utils.book_append_sheet(workbook, worksheet, 'Devices');
-  xlsxModule.writeFile(workbook, 'device-inventory.xlsx');
+  const suffix = selectedChangeScope.value === 'since-import'
+    ? 'changed-since-import'
+    : selectedChangeScope.value === 'today'
+      ? 'changed-today'
+      : 'all';
+  xlsxModule.writeFile(workbook, `device-inventory-${suffix}.xlsx`);
 }
 
 watch(
@@ -831,8 +859,9 @@ watch(
         <aside v-else class="card panel list-panel">
           <div class="section-header inventory-header">
             <div class="inventory-actions">
-              <button class="ghost small" type="button" :disabled="!sortedDevices.length" @click="exportDevices">
-                Download Excel
+              <button class="ghost small" type="button" :disabled="!filteredDevices.length" @click="exportDevices">
+                Download {{ filteredDevices.length }}
+                {{ selectedChangeScope === 'all' ? 'items' : 'changes' }}
               </button>
             </div>
             <div class="inventory-actions">
@@ -856,6 +885,13 @@ watch(
                 <option v-for="type in deviceTypes" :key="type" :value="type">{{ type }}</option>
               </select>
             </label>
+            <label>
+              <select v-model="selectedChangeScope" aria-label="Filter by change status">
+                <option value="all">All items</option>
+                <option value="since-import">Changed since import</option>
+                <option value="today">Changed today</option>
+              </select>
+            </label>
           </div>
 
           <div v-if="filteredDevices.length" class="device-groups">
@@ -872,13 +908,16 @@ watch(
                   @keydown.enter="editDevice(device)"
                   @keydown.space.prevent="editDevice(device)"
                 >
-              <div class="device-line">
-                <h3>{{ device.name }}</h3>
-                <p>{{ device.type || 'Uncategorized' }} / {{ device.location || 'No location set' }}</p>
-                <div class="device-actions">
-                  <button class="danger small" @click.stop="deleteDevice(device.id)">Delete</button>
-                </div>
-              </div>
+                  <div class="device-line">
+                    <div class="device-identity">
+                      <h3>{{ device.name }}</h3>
+                      <p class="device-vendor">{{ device.vendor || 'No vendor set' }}</p>
+                    </div>
+                    <p class="device-summary">{{ device.type || 'Uncategorized' }} / {{ device.location || 'No location set' }}</p>
+                    <div class="device-actions">
+                      <button class="danger small" @click.stop="deleteDevice(device.id)">Delete</button>
+                    </div>
+                  </div>
 
                 </article>
               </div>
@@ -886,7 +925,9 @@ watch(
           </div>
 
           <p v-else class="empty-state">
-            {{ sortedDevices.length ? 'No devices match the selected filters.' : 'No devices yet. Select New device to add the first install record.' }}
+            {{ sortedDevices.length
+              ? (selectedChangeScope === 'today' ? 'No devices were modified today.' : selectedChangeScope === 'since-import' ? 'No devices have changed since import.' : 'No devices match the selected filters.')
+              : 'No devices yet. Select New device to add the first install record.' }}
           </p>
         </aside>
       </section>
