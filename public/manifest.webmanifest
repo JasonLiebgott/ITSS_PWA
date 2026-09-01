@@ -2,14 +2,14 @@
   "name": "Printer Support PWA",
   "short_name": "Printer Support",
   "description": "Field support app for printer setup steps and device tracking.",
-  "start_url": "/",
-  "scope": "/",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#0b1120",
   "theme_color": "#0f172a",
   "icons": [
     {
-      "src": "/icon.svg",
+      "src": "./icon.svg",
       "sizes": "any",
       "type": "image/svg+xml"
     }

@@ -1,5 +1,11 @@
 const CACHE_NAME = 'printer-support-pwa-v1';
-const ASSETS = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg'];
+const BASE_URL = self.registration.scope;
+const ASSETS = [
+  BASE_URL,
+  new URL('index.html', BASE_URL).href,
+  new URL('manifest.webmanifest', BASE_URL).href,
+  new URL('icon.svg', BASE_URL).href,
+];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -22,7 +28,7 @@ self.addEventListener('fetch', (event) => {
 
   if (event.request.mode === 'navigate') {
     event.respondWith(
-      fetch(event.request).catch(() => caches.match('/index.html'))
+      fetch(event.request).catch(() => caches.match(new URL('index.html', BASE_URL).href))
     );
     return;
   }
