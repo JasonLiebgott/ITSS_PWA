@@ -1,4 +1,4 @@
-const CACHE_NAME = 'embercount-v3';
+const CACHE_NAME = 'embercount-v4';
 const BASE_URL = self.registration.scope;
 const ASSETS = [
   BASE_URL,

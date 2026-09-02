@@ -302,8 +302,14 @@ function hasChangedSinceImport(device) {
 }
 
 function wasModifiedToday(device) {
-  if (!device.updatedAt) return false;
-  return new Date(device.updatedAt).toLocaleDateString() === new Date().toLocaleDateString();
+  return localDateKey(device.updatedAt) === localDateKey(new Date());
+}
+
+function localDateKey(value) {
+  if (!value) return '';
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
 }
 
 async function importInventory(event) {
