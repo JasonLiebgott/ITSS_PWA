@@ -302,7 +302,7 @@ function hasChangedSinceImport(device) {
 }
 
 function wasModifiedToday(device) {
-  return localDateKey(device.updatedAt) === localDateKey(new Date());
+  return hasChangedSinceImport(device) && localDateKey(device.updatedAt) === localDateKey(new Date());
 }
 
 function localDateKey(value) {
