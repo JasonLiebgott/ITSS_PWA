@@ -11,7 +11,22 @@ if ('serviceWorker' in navigator) {
         window.dispatchEvent(new CustomEvent('pwa-update-available', { detail: registration }));
       };
 
+      const checkForUpdate = () => {
+        registration.update().then(() => {
+          if (registration.waiting) announceUpdate();
+        }).catch(() => {
+          // The app can continue using its current cached version offline.
+        });
+      };
+
       if (registration.waiting) announceUpdate();
+      checkForUpdate();
+
+      window.addEventListener('online', checkForUpdate);
+      window.addEventListener('pageshow', checkForUpdate);
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') checkForUpdate();
+      });
 
       registration.addEventListener('updatefound', () => {
         const worker = registration.installing;
